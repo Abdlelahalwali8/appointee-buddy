@@ -14,7 +14,7 @@ const ProtectedRoute = ({
   requireAuth = true,
   allowedRoles 
 }: ProtectedRouteProps) => {
-  const { user, profile, loading } = useAuth();
+  const { user, userRole, loading } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -25,11 +25,11 @@ const ProtectedRoute = ({
       return;
     }
 
-    if (allowedRoles && profile && !allowedRoles.includes(profile.role)) {
+    if (allowedRoles && userRole && !allowedRoles.includes(userRole as any)) {
       navigate('/');
       return;
     }
-  }, [user, profile, loading, requireAuth, allowedRoles, navigate]);
+  }, [user, userRole, loading, requireAuth, allowedRoles, navigate]);
 
   if (loading) {
     return (
@@ -43,7 +43,7 @@ const ProtectedRoute = ({
     return null;
   }
 
-  if (allowedRoles && profile && !allowedRoles.includes(profile.role)) {
+  if (allowedRoles && userRole && !allowedRoles.includes(userRole as any)) {
     return null;
   }
 

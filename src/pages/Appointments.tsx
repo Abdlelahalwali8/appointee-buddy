@@ -43,28 +43,11 @@ const Appointments = () => {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [dateFilter, setDateFilter] = useState<string>('all');
   const [doctorFilter, setDoctorFilter] = useState<string>('all');
-  const [typeFilter, setTypeFilter] = useState<string>('all');
-  const [appointmentTypes, setAppointmentTypes] = useState<{ id: string; name: string }[]>([]);
   
   const { searchTerm, setSearchTerm, filteredData: searchedAppointments } = useSearch(appointments, {
     fields: ['patients.full_name', 'patients.phone', 'doctors.profiles.full_name'],
     minChars: 0,
   });
-
-  const fetchAppointmentTypes = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('appointment_types')
-        .select('id, name')
-        .eq('is_active', true)
-        .order('name', { ascending: true });
-
-      if (error) throw error;
-      setAppointmentTypes(data || []);
-    } catch (error) {
-      console.error('Error fetching appointment types:', error);
-    }
-  };
 
   const fetchAppointments = async () => {
     try {
@@ -81,9 +64,6 @@ const Appointments = () => {
               full_name
             ),
             specialization
-          ),
-          appointment_types (
-            name
           )
         `)
         .order('appointment_date', { ascending: true })
@@ -105,7 +85,6 @@ const Appointments = () => {
 
   useEffect(() => {
     fetchAppointments();
-    fetchAppointmentTypes();
   }, []);
 
   // Real-time subscription for appointments
@@ -159,28 +138,25 @@ const Appointments = () => {
   const filteredAppointments = searchedAppointments.filter(appointment => {
     const matchesStatus = statusFilter === 'all' || appointment.status === statusFilter;
     const matchesDoctor = doctorFilter === 'all' || appointment.doctors.profiles.full_name === doctorFilter;
-    const matchesType = typeFilter === 'all' || appointment.appointment_types?.name === typeFilter;
     
     let matchesDate = true;
     if (dateFilter !== 'all') {
       const appointmentDate = new Date(appointment.appointment_date);
       const today = new Date();
+      today.setHours(0, 0, 0, 0);
       const tomorrow = new Date(today);
-      // tomorrow.setDate(tomorrow.getDate() + 1); // This line is not needed, as tomorrow is already defined
-      tomorrow.setHours(0, 0, 0, 0);
+      tomorrow.setDate(tomorrow.getDate() + 1);
       
       if (dateFilter === 'today') {
-	        matchesDate = appointmentDate.toDateString() === today.toDateString();
-
+        matchesDate = appointmentDate.toDateString() === today.toDateString();
       } else if (dateFilter === 'tomorrow') {
         matchesDate = appointmentDate.toDateString() === tomorrow.toDateString();
       } else if (dateFilter === 'upcoming') {
-	        // Filter for appointments from today onwards
-	        matchesDate = appointmentDate.getTime() >= today.getTime();
+        matchesDate = appointmentDate.getTime() >= today.getTime();
       }
     }
     
-    return matchesStatus && matchesDoctor && matchesDate && matchesType;
+    return matchesStatus && matchesDoctor && matchesDate;
   });
 
   const uniqueDoctors = [...new Set(appointments.map(a => a.doctors.profiles.full_name))];
@@ -216,7 +192,7 @@ const Appointments = () => {
         </div>
 
         {/* Search and Filters */}
-	          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
           <SearchBar
             value={searchTerm}
             onChange={setSearchTerm}
@@ -246,32 +222,19 @@ const Appointments = () => {
               <SelectItem value="upcoming">القادمة</SelectItem>
             </SelectContent>
           </Select>
-	          <Select value={doctorFilter} onValueChange={setDoctorFilter}>
-	            <SelectTrigger className="text-sm">
-	              <SelectValue placeholder="تصفية حسب الطبيب" />
-	            </SelectTrigger>
-	            <SelectContent>
-	              <SelectItem value="all">جميع الأطباء</SelectItem>
-	              {uniqueDoctors.map(doctor => (
-	                <SelectItem key={doctor} value={doctor}>
-	                  د. {doctor}
-	                </SelectItem>
-	              ))}
-	            </SelectContent>
-	          </Select>
-	          <Select value={typeFilter} onValueChange={setTypeFilter}>
-	            <SelectTrigger className="text-sm">
-	              <SelectValue placeholder="تصفية حسب النوع" />
-	            </SelectTrigger>
-	            <SelectContent>
-	              <SelectItem value="all">جميع الأنواع</SelectItem>
-	              {appointmentTypes.map(type => (
-	                <SelectItem key={type.id} value={type.name}>
-	                  {type.name}
-	                </SelectItem>
-	              ))}
-	            </SelectContent>
-	          </Select>
+          <Select value={doctorFilter} onValueChange={setDoctorFilter}>
+            <SelectTrigger className="text-sm">
+              <SelectValue placeholder="تصفية حسب الطبيب" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">جميع الأطباء</SelectItem>
+              {uniqueDoctors.map(doctor => (
+                <SelectItem key={doctor} value={doctor}>
+                  د. {doctor}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Appointments List */}
@@ -304,17 +267,12 @@ const Appointments = () => {
                         </AvatarFallback>
                       </Avatar>
                       <div className="flex-1 min-w-0">
-	          <div className="flex items-center gap-2 mb-1 flex-wrap">
-	            <h4 className="font-semibold text-sm sm:text-base text-foreground truncate">
-	              {appointment.patients.full_name}
-	            </h4>
-	            {getStatusBadge(appointment.status)}
-	            {appointment.appointment_types?.name && (
-	              <Badge variant="secondary" className="text-xs bg-indigo-100 text-indigo-800">
-	                {appointment.appointment_types.name}
-	              </Badge>
-	            )}
-	          </div>
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <h4 className="font-semibold text-sm sm:text-base text-foreground truncate">
+                          {appointment.patients.full_name}
+                        </h4>
+                        {getStatusBadge(appointment.status)}
+                      </div>
                         <div className="flex flex-col gap-1 text-xs sm:text-sm text-muted-foreground">
                           <span className="flex items-center gap-1 truncate">
                             <User className="w-3 h-3 flex-shrink-0" />

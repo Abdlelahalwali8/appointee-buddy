@@ -6,8 +6,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { Loader2, Stethoscope, Calendar, Search, User, Phone, FileText, Pill } from 'lucide-react';
@@ -16,9 +14,8 @@ import { toast } from '@/hooks/use-toast';
 
 interface Doctor {
   id: string;
-  user_id: string;
   specialization: string;
-  profiles?: { full_name: string };
+  full_name?: string;
 }
 
 const Auth = () => {
@@ -54,28 +51,41 @@ const Auth = () => {
   const [selectedPatient, setSelectedPatient] = useState<any>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [patientRecords, setPatientRecords] = useState<any[]>([]);
-  const [showRecordsDialog, setShowRecordsDialog] = useState(false);
 
   useEffect(() => {
     let mounted = true;
     
     const fetchDoctors = async () => {
       try {
-        const { data, error } = await supabase
+        // First get doctors
+        const { data: doctorsData, error: doctorsError } = await supabase
           .from('doctors')
-          .select(`
-            id,
-            user_id,
-            specialization,
-            profiles:user_id (
-              full_name
-            )
-          `)
+          .select('id, user_id, specialization')
           .eq('is_available', true);
 
-        if (error) throw error;
-        if (mounted) {
-          setDoctors(data || []);
+        if (doctorsError) throw doctorsError;
+        
+        if (doctorsData && doctorsData.length > 0) {
+          // Get profiles for these doctors
+          const userIds = doctorsData.map(d => d.user_id);
+          const { data: profilesData } = await supabase
+            .from('profiles')
+            .select('user_id, full_name')
+            .in('user_id', userIds);
+
+          // Combine data
+          const combinedDoctors = doctorsData.map(doctor => {
+            const profile = profilesData?.find(p => p.user_id === doctor.user_id);
+            return {
+              id: doctor.id,
+              specialization: doctor.specialization,
+              full_name: profile?.full_name || 'طبيب'
+            };
+          });
+
+          if (mounted) {
+            setDoctors(combinedDoctors);
+          }
         }
       } catch (error) {
         console.error('Error fetching doctors:', error);
@@ -105,7 +115,7 @@ const Auth = () => {
     e.preventDefault();
     setIsLoading(true);
     
-    const { error } = await signIn(signInData.identifier, signInData.password);
+    await signIn(signInData.identifier, signInData.password);
     
     setIsLoading(false);
   };
@@ -178,7 +188,7 @@ const Auth = () => {
       fullName: patient.full_name,
       phone: patient.phone,
       age: patient.age?.toString() || '',
-      city: patient.city || '',
+      city: patient.address || '',
       notes: patient.notes || ''
     });
     setSearchResults([]);
@@ -187,16 +197,9 @@ const Auth = () => {
     try {
       const { data, error } = await supabase
         .from('medical_records')
-        .select(`
-          *,
-          doctors (
-            profiles (
-              full_name
-            )
-          )
-        `)
+        .select('*')
         .eq('patient_id', patient.id)
-        .order('visit_date', { ascending: false })
+        .order('record_date', { ascending: false })
         .limit(5);
 
       if (error) throw error;
@@ -221,7 +224,7 @@ const Auth = () => {
             full_name: quickBookingData.fullName,
             phone: quickBookingData.phone,
             age: quickBookingData.age ? parseInt(quickBookingData.age) : null,
-            city: quickBookingData.city || null,
+            address: quickBookingData.city || null,
             notes: quickBookingData.notes || null,
           })
           .select()
@@ -310,14 +313,14 @@ const Auth = () => {
               <TabsContent value="signin">
                 <form onSubmit={handleSignIn} className="space-y-4">
                   <div>
-                    <Label htmlFor="signin-identifier">البريد الإلكتروني أو رقم الهاتف أو اسم المستخدم</Label>
+                    <Label htmlFor="signin-identifier">البريد الإلكتروني أو رقم الهاتف</Label>
                     <Input
                       id="signin-identifier"
                       type="text"
                       value={signInData.identifier}
                       onChange={(e) => setSignInData({ ...signInData, identifier: e.target.value })}
                       required
-                      placeholder="أدخل البريد الإلكتروني أو رقم الهاتف أو اسم المستخدم"
+                      placeholder="أدخل البريد الإلكتروني أو رقم الهاتف"
                       className="mt-1"
                     />
                   </div>
@@ -470,7 +473,7 @@ const Auth = () => {
                   <div>
                     <Label htmlFor="search-patient">
                       <Search className="inline w-4 h-4 ml-2" />
-                      بحث عن مريض موجود
+                      البحث عن مريض مسجل
                     </Label>
                     <Input
                       id="search-patient"
@@ -480,19 +483,23 @@ const Auth = () => {
                       className="mt-1"
                     />
                     {isSearching && (
-                      <p className="text-xs text-muted-foreground mt-1">جاري البحث...</p>
+                      <div className="flex items-center justify-center py-2">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      </div>
                     )}
                     {searchResults.length > 0 && (
-                      <div className="border rounded-lg mt-2 max-h-32 overflow-y-auto">
+                      <div className="mt-2 border rounded-lg divide-y">
                         {searchResults.map((patient) => (
                           <div
                             key={patient.id}
-                            className="p-2 hover:bg-accent cursor-pointer border-b last:border-b-0 text-sm"
+                            className="p-2 hover:bg-accent cursor-pointer flex items-center gap-2"
                             onClick={() => handlePatientSelect(patient)}
                           >
-                            <p className="font-medium">{patient.full_name}</p>
-                            <p className="text-xs text-muted-foreground">{patient.phone}</p>
-                            {patient.age && <p className="text-xs text-muted-foreground">العمر: {patient.age}</p>}
+                            <User className="w-4 h-4 text-muted-foreground" />
+                            <div className="flex-1">
+                              <p className="font-medium">{patient.full_name}</p>
+                              <p className="text-sm text-muted-foreground">{patient.phone}</p>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -500,153 +507,96 @@ const Auth = () => {
                   </div>
 
                   {selectedPatient && (
-                    <Alert className="bg-primary/5">
-                      <User className="h-4 w-4" />
-                      <AlertDescription className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium">مريض محدد: {selectedPatient.full_name}</span>
-                          <div className="flex gap-2">
-                            {patientRecords.length > 0 && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setShowRecordsDialog(true)}
-                              >
-                                <FileText className="w-3 h-3 ml-1" />
-                                السجل الطبي ({patientRecords.length})
-                              </Button>
-                            )}
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setSelectedPatient(null);
-                                setPatientRecords([]);
-                                setQuickBookingData({
-                                  ...quickBookingData,
-                                  fullName: '',
-                                  phone: '',
-                                  age: '',
-                                  city: '',
-                                  notes: ''
-                                });
-                              }}
-                            >
-                              إلغاء
-                            </Button>
-                          </div>
+                    <div className="p-3 bg-primary/10 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <User className="w-5 h-5 text-primary" />
+                          <span className="font-medium">{selectedPatient.full_name}</span>
                         </div>
-                      </AlertDescription>
-                    </Alert>
+                        <Badge variant="secondary">مريض مسجل</Badge>
+                      </div>
+                      {patientRecords.length > 0 && (
+                        <p className="text-sm text-muted-foreground mt-2">
+                          <FileText className="inline w-4 h-4 ml-1" />
+                          {patientRecords.length} سجلات طبية سابقة
+                        </p>
+                      )}
+                    </div>
                   )}
 
-                  <div className="border-t pt-4">
-                    <h4 className="text-sm font-medium mb-3">
-                      {selectedPatient ? 'بيانات المريض' : 'مريض جديد'}
-                    </h4>
-                    <div>
-                      <Label htmlFor="booking-name">الاسم الكامل</Label>
-                      <Input
-                        id="booking-name"
-                        type="text"
-                        value={quickBookingData.fullName}
-                        onChange={(e) => setQuickBookingData({ ...quickBookingData, fullName: e.target.value })}
-                        required
-                        className="mt-1"
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="booking-age">العمر</Label>
-                      <Input
-                        id="booking-age"
-                        type="number"
-                        min="1"
-                        max="150"
-                        value={quickBookingData.age}
-                        onChange={(e) => setQuickBookingData({ ...quickBookingData, age: e.target.value })}
-                        required
-                        className="mt-1"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="booking-phone">
-                        <Phone className="inline w-3 h-3 ml-1" />
-                        رقم الهاتف
-                      </Label>
-                      <Input
-                        id="booking-phone"
-                        type="tel"
-                        value={quickBookingData.phone}
-                        onChange={(e) => setQuickBookingData({ ...quickBookingData, phone: e.target.value })}
-                        required
-                        className="mt-1"
-                      />
-                    </div>
-                  </div>
+                  {!selectedPatient && (
+                    <>
+                      <div>
+                        <Label htmlFor="booking-name">الاسم الكامل *</Label>
+                        <Input
+                          id="booking-name"
+                          type="text"
+                          value={quickBookingData.fullName}
+                          onChange={(e) => setQuickBookingData({ ...quickBookingData, fullName: e.target.value })}
+                          required
+                          className="mt-1"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <Label htmlFor="booking-phone">رقم الهاتف *</Label>
+                          <Input
+                            id="booking-phone"
+                            type="tel"
+                            value={quickBookingData.phone}
+                            onChange={(e) => setQuickBookingData({ ...quickBookingData, phone: e.target.value })}
+                            required
+                            className="mt-1"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="booking-age">العمر</Label>
+                          <Input
+                            id="booking-age"
+                            type="number"
+                            value={quickBookingData.age}
+                            onChange={(e) => setQuickBookingData({ ...quickBookingData, age: e.target.value })}
+                            className="mt-1"
+                          />
+                        </div>
+                      </div>
+                    </>
+                  )}
+
                   <div>
-                    <Label htmlFor="booking-city">المدينة (اختياري)</Label>
-                    <Input
-                      id="booking-city"
-                      type="text"
-                      value={quickBookingData.city}
-                      onChange={(e) => setQuickBookingData({ ...quickBookingData, city: e.target.value })}
-                      className="mt-1"
-                      placeholder="المدينة"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="booking-notes">ملاحظات (اختياري)</Label>
-                    <textarea
-                      id="booking-notes"
-                      value={quickBookingData.notes}
-                      onChange={(e) => setQuickBookingData({ ...quickBookingData, notes: e.target.value })}
-                      className="w-full px-3 py-2 border rounded-lg bg-background min-h-[60px] mt-1"
-                      placeholder="الأعراض أو ملاحظات إضافية..."
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="booking-doctor">الطبيب</Label>
+                    <Label htmlFor="booking-doctor">اختر الطبيب *</Label>
                     <Select
                       value={quickBookingData.doctorId}
                       onValueChange={(value) => setQuickBookingData({ ...quickBookingData, doctorId: value })}
                     >
-                      <SelectTrigger className="mt-1" id="booking-doctor">
+                      <SelectTrigger className="mt-1">
                         <SelectValue placeholder="اختر الطبيب" />
                       </SelectTrigger>
                       <SelectContent>
-                        {doctors.length > 0 ? (
-                          doctors.map((doctor) => (
-                            <SelectItem key={doctor.id} value={doctor.id}>
-                              {doctor.profiles?.full_name || 'غير معروف'} - {doctor.specialization}
-                            </SelectItem>
-                          ))
-                        ) : (
-                          <SelectItem value="no-doctors" disabled>
-                            لا يوجد أطباء متاحين
+                        {doctors.map((doctor) => (
+                          <SelectItem key={doctor.id} value={doctor.id}>
+                            د. {doctor.full_name} - {doctor.specialization}
                           </SelectItem>
-                        )}
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <Label htmlFor="booking-date">تاريخ الموعد</Label>
+                      <Label htmlFor="booking-date">تاريخ الموعد *</Label>
                       <Input
                         id="booking-date"
                         type="date"
-                        min={new Date().toISOString().split('T')[0]}
                         value={quickBookingData.appointmentDate}
                         onChange={(e) => setQuickBookingData({ ...quickBookingData, appointmentDate: e.target.value })}
                         required
+                        min={new Date().toISOString().split('T')[0]}
                         className="mt-1"
                       />
                     </div>
                     <div>
-                      <Label htmlFor="booking-time">وقت الموعد</Label>
+                      <Label htmlFor="booking-time">الوقت</Label>
                       <Input
                         id="booking-time"
                         type="time"
@@ -656,96 +606,32 @@ const Auth = () => {
                       />
                     </div>
                   </div>
+
+                  <div>
+                    <Label htmlFor="booking-notes">ملاحظات</Label>
+                    <textarea
+                      id="booking-notes"
+                      value={quickBookingData.notes}
+                      onChange={(e) => setQuickBookingData({ ...quickBookingData, notes: e.target.value })}
+                      className="w-full mt-1 px-3 py-2 border rounded-lg bg-background min-h-[60px] text-sm"
+                      placeholder="سبب الزيارة أو ملاحظات..."
+                    />
+                  </div>
+
                   <Button
                     type="submit"
                     variant="medical"
                     className="w-full"
-                    disabled={isLoading}
+                    disabled={isLoading || !quickBookingData.doctorId || !quickBookingData.appointmentDate || (!selectedPatient && (!quickBookingData.fullName || !quickBookingData.phone))}
                   >
                     {isLoading ? <Loader2 className="w-4 h-4 animate-spin ml-2" /> : <Calendar className="w-4 h-4 ml-2" />}
-                    حجز الموعد
+                    {selectedPatient ? 'حجز موعد' : 'إضافة وحجز'}
                   </Button>
-                  <p className="text-xs text-muted-foreground text-center">
-                    سيتم التواصل معك لتأكيد الموعد
-                  </p>
                 </form>
               </TabsContent>
             </Tabs>
           </CardContent>
         </Card>
-
-        {/* Medical Records Dialog */}
-        <Dialog open={showRecordsDialog} onOpenChange={setShowRecordsDialog}>
-          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <FileText className="w-5 h-5" />
-                السجل الطبي - {selectedPatient?.full_name}
-              </DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              {patientRecords.length === 0 ? (
-                <div className="text-center py-8">
-                  <FileText className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                  <p className="text-muted-foreground">لا توجد سجلات طبية</p>
-                </div>
-              ) : (
-                patientRecords.map((record) => (
-                  <Card key={record.id} className="border-0 bg-accent/20">
-                    <CardContent className="p-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <Badge variant="outline">
-                          {new Date(record.visit_date).toLocaleDateString('ar-SA')}
-                        </Badge>
-                        <span className="text-sm text-muted-foreground">
-                          د. {record.doctors.profiles.full_name}
-                        </span>
-                      </div>
-                      
-                      {record.chief_complaint && (
-                        <div>
-                          <h4 className="text-sm font-medium mb-1">الشكوى الرئيسية:</h4>
-                          <p className="text-sm text-muted-foreground">{record.chief_complaint}</p>
-                        </div>
-                      )}
-                      
-                      {record.diagnosis && (
-                        <div>
-                          <h4 className="text-sm font-medium mb-1">التشخيص:</h4>
-                          <p className="text-sm text-muted-foreground">{record.diagnosis}</p>
-                        </div>
-                      )}
-                      
-                      {record.treatment_plan && (
-                        <div>
-                          <h4 className="text-sm font-medium mb-1">خطة العلاج:</h4>
-                          <p className="text-sm text-muted-foreground">{record.treatment_plan}</p>
-                        </div>
-                      )}
-                      
-                      {record.prescribed_medications && (
-                        <div>
-                          <h4 className="text-sm font-medium mb-1 flex items-center gap-1">
-                            <Pill className="w-3 h-3" />
-                            الأدوية الموصوفة:
-                          </h4>
-                          <p className="text-sm text-muted-foreground">{record.prescribed_medications}</p>
-                        </div>
-                      )}
-                      
-                      {record.follow_up_instructions && (
-                        <div>
-                          <h4 className="text-sm font-medium mb-1">تعليمات المتابعة:</h4>
-                          <p className="text-sm text-muted-foreground">{record.follow_up_instructions}</p>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                ))
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
       </div>
     </div>
   );

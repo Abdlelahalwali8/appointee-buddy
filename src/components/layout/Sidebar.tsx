@@ -3,7 +3,6 @@ import { NavLink, useLocation } from 'react-router-dom';
 import {
   Calendar,
   Users,
-  UserPlus,
   Settings,
   Activity,
   FileText,
@@ -13,23 +12,20 @@ import {
   UserCheck,
   ClipboardList,
   BarChart3,
-  Shield,
   LogOut,
   Plus,
   ChevronLeft,
   Menu,
-  Database,
   HelpCircle
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNotifications } from '@/hooks/useNotifications';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 
 const Sidebar = () => {
-  const { profile, signOut, isAdmin, isDoctor, isReceptionist } = useAuth();
+  const { profile, signOut, isAdmin, isDoctor, isReceptionist, userRole } = useAuth();
   const { unreadCount } = useNotifications();
   const location = useLocation();
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -44,7 +40,6 @@ const Sidebar = () => {
       }
     };
 
-    // Initial check
     handleResize();
 
     window.addEventListener('resize', handleResize);
@@ -68,12 +63,6 @@ const Sidebar = () => {
       title: 'المواعيد',
       icon: Calendar,
       path: '/appointments',
-      roles: ['admin', 'doctor', 'receptionist']
-    },
-    {
-      title: 'المواعيد المتقدمة',
-      icon: Activity,
-      path: '/appointments-advanced',
       roles: ['admin', 'doctor', 'receptionist']
     },
     {
@@ -119,27 +108,9 @@ const Sidebar = () => {
       roles: ['admin']
     },
     {
-      title: 'الصلاحيات',
-      icon: Shield,
-      path: '/permissions',
-      roles: ['admin']
-    },
-    {
-      title: 'الصلاحيات المتقدمة',
-      icon: UserCheck,
-      path: '/permissions-advanced',
-      roles: ['admin']
-    },
-    {
       title: 'الإعدادات',
       icon: Settings,
       path: '/settings',
-      roles: ['admin']
-    },
-    {
-      title: 'إدارة النظام',
-      icon: Database,
-      path: '/system-management',
       roles: ['admin']
     },
     {
@@ -151,7 +122,7 @@ const Sidebar = () => {
   ];
 
   const filteredMenuItems = menuItems.filter(item => 
-    item.roles.includes(profile?.role || 'patient')
+    item.roles.includes(userRole || 'patient')
   );
 
   const isActive = (path: string) => {
@@ -159,6 +130,16 @@ const Sidebar = () => {
       return location.pathname === '/';
     }
     return location.pathname.startsWith(path);
+  };
+
+  const getRoleLabel = (role: string | null) => {
+    switch (role) {
+      case 'admin': return 'مدير النظام';
+      case 'doctor': return 'طبيب';
+      case 'receptionist': return 'موظف استقبال';
+      case 'patient': return 'مريض';
+      default: return 'مستخدم';
+    }
   };
 
   return (
@@ -219,10 +200,7 @@ const Sidebar = () => {
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{profile?.full_name}</p>
                 <p className="text-xs text-muted-foreground">
-                  {profile?.role === 'admin' && 'مدير النظام'}
-                  {profile?.role === 'doctor' && 'طبيب'}
-                  {profile?.role === 'receptionist' && 'موظف استقبال'}
-                  {profile?.role === 'patient' && 'مريض'}
+                  {getRoleLabel(userRole)}
                 </p>
               </div>
             </div>

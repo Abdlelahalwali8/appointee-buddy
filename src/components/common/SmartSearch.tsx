@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Search, Plus, Calendar, Phone, Mail, ArrowRight, AlertCircle, FileText } from 'lucide-react';
+import { Search, Plus, Calendar, AlertCircle, FileText } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { supabase } from '@/integrations/supabase/client';
@@ -14,13 +14,20 @@ import { TextInput, TextAreaField } from '@/components/common/FormField';
 import { useForm, FormErrors } from '@/hooks/useForm';
 
 interface SearchResult {
-  type: 'patient' | 'doctor' | 'appointment';
+  type: 'patient' | 'doctor';
   id: string;
   name: string;
   phone?: string;
   email?: string;
   specialization?: string;
   data: any;
+}
+
+interface Doctor {
+  id: string;
+  user_id: string;
+  specialization: string;
+  full_name?: string;
 }
 
 const SmartSearch = () => {
@@ -31,7 +38,7 @@ const SmartSearch = () => {
   const [isBookingOpen, setIsBookingOpen] = useState(false);
   const [isViewRecordOpen, setIsViewRecordOpen] = useState(false);
   const [selectedPatient, setSelectedPatient] = useState<any>(null);
-  const [doctors, setDoctors] = useState<any[]>([]);
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [medicalRecords, setMedicalRecords] = useState<any[]>([]);
   const searchRef = useRef<HTMLDivElement>(null);
 
@@ -41,11 +48,32 @@ const SmartSearch = () => {
   }, []);
 
   const fetchDoctors = async () => {
-    const { data } = await supabase
-      .from('doctors')
-      .select('*, profiles(full_name)')
-      .eq('is_available', true);
-    setDoctors(data || []);
+    try {
+      const { data: doctorsData } = await supabase
+        .from('doctors')
+        .select('id, user_id, specialization')
+        .eq('is_available', true);
+
+      if (doctorsData && doctorsData.length > 0) {
+        const userIds = doctorsData.map(d => d.user_id);
+        const { data: profilesData } = await supabase
+          .from('profiles')
+          .select('user_id, full_name')
+          .in('user_id', userIds);
+
+        const enrichedDoctors = doctorsData.map(doctor => {
+          const profile = profilesData?.find(p => p.user_id === doctor.user_id);
+          return {
+            ...doctor,
+            full_name: profile?.full_name || 'طبيب'
+          };
+        });
+
+        setDoctors(enrichedDoctors);
+      }
+    } catch (error) {
+      console.error('Error fetching doctors:', error);
+    }
   };
 
   const performSearch = async (query: string) => {
@@ -74,24 +102,32 @@ const SmartSearch = () => {
         });
       });
 
-      // Search doctors
-      const { data: doctors } = await supabase
+      // Search doctors - fetch separately then combine
+      const { data: doctorsData } = await supabase
         .from('doctors')
-        .select(`
-          *,
-          profiles (full_name, email)
-        `)
-        .or(`profiles.full_name.ilike.%${query}%`);
+        .select('id, user_id, specialization');
 
-      doctors?.forEach(doctor => {
-        searchResults.push({
-          type: 'doctor',
-          id: doctor.id,
-          name: `د. ${doctor.profiles?.full_name}`,
-          specialization: doctor.specialization,
-          data: doctor,
+      if (doctorsData) {
+        const userIds = doctorsData.map(d => d.user_id);
+        const { data: profilesData } = await supabase
+          .from('profiles')
+          .select('user_id, full_name, email')
+          .in('user_id', userIds)
+          .ilike('full_name', `%${query}%`);
+
+        profilesData?.forEach(profile => {
+          const doctor = doctorsData.find(d => d.user_id === profile.user_id);
+          if (doctor) {
+            searchResults.push({
+              type: 'doctor',
+              id: doctor.id,
+              name: `د. ${profile.full_name}`,
+              specialization: doctor.specialization,
+              data: { ...doctor, full_name: profile.full_name },
+            });
+          }
         });
-      });
+      }
 
       setResults(searchResults);
     } catch (error) {
@@ -115,12 +151,9 @@ const SmartSearch = () => {
       // Fetch medical records
       const { data } = await supabase
         .from('medical_records')
-        .select(`
-          *,
-          doctors(*, profiles(full_name))
-        `)
+        .select('*')
         .eq('patient_id', patient.id)
-        .order('visit_date', { ascending: false });
+        .order('record_date', { ascending: false });
       
       setMedicalRecords(data || []);
       setIsViewRecordOpen(true);
@@ -129,7 +162,6 @@ const SmartSearch = () => {
 
   const handleAddNewPatient = () => {
     setIsOpen(false);
-    // Pre-fill name if search term exists
     if (searchTerm) {
       addPatientForm.setFieldValue('full_name', searchTerm);
     }
@@ -240,7 +272,7 @@ const SmartSearch = () => {
         <div className="flex items-center gap-2 bg-accent/50 rounded-lg px-4 py-2 border border-primary/20">
           <Search className="w-5 h-5 text-muted-foreground" />
           <Input
-            placeholder="ابحث عن مريض، طبيب، أو موعد..."
+            placeholder="ابحث عن مريض أو طبيب..."
             value={searchTerm}
             onChange={(e) => handleSearchChange(e.target.value)}
             onFocus={() => setIsOpen(true)}
@@ -316,7 +348,7 @@ const SmartSearch = () => {
                         <div className="flex items-center gap-3">
                           <Avatar className="h-10 w-10">
                             <AvatarFallback className="bg-primary/20 text-primary">
-                              {result.name.split(' ')[0][0]}
+                              {result.name.split(' ')[1]?.[0] || result.name[0]}
                             </AvatarFallback>
                           </Avatar>
                           <div>
@@ -410,10 +442,9 @@ const SmartSearch = () => {
                   <CardContent className="p-4 space-y-3">
                     <div className="flex justify-between items-start">
                       <div>
-                        <p className="font-semibold">د. {record.doctors?.profiles?.full_name}</p>
-                        <p className="text-sm text-muted-foreground">{record.doctors?.specialization}</p>
+                        <p className="text-sm text-muted-foreground">التاريخ</p>
                       </div>
-                      <Badge>{new Date(record.visit_date).toLocaleDateString('ar-SA')}</Badge>
+                      <Badge>{new Date(record.record_date).toLocaleDateString('ar-SA')}</Badge>
                     </div>
                     {record.diagnosis && (
                       <div>
@@ -421,16 +452,16 @@ const SmartSearch = () => {
                         <p className="text-sm">{record.diagnosis}</p>
                       </div>
                     )}
-                    {record.treatment_plan && (
+                    {record.treatment && (
                       <div>
-                        <p className="text-sm font-medium text-muted-foreground">خطة العلاج:</p>
-                        <p className="text-sm">{record.treatment_plan}</p>
+                        <p className="text-sm font-medium text-muted-foreground">العلاج:</p>
+                        <p className="text-sm">{record.treatment}</p>
                       </div>
                     )}
-                    {record.prescribed_medications && (
+                    {record.prescription && (
                       <div>
-                        <p className="text-sm font-medium text-muted-foreground">الأدوية:</p>
-                        <p className="text-sm">{record.prescribed_medications}</p>
+                        <p className="text-sm font-medium text-muted-foreground">الوصفة:</p>
+                        <p className="text-sm">{record.prescription}</p>
                       </div>
                     )}
                   </CardContent>
@@ -468,13 +499,13 @@ const SmartSearch = () => {
                 value={bookingForm.values.doctor_id}
                 onValueChange={(value) => bookingForm.setFieldValue('doctor_id', value)}
               >
-                <SelectTrigger className={bookingForm.errors.doctor_id ? 'border-destructive' : ''}>
-                  <SelectValue placeholder="اختر طبيب..." />
+                <SelectTrigger>
+                  <SelectValue placeholder="اختر الطبيب" />
                 </SelectTrigger>
                 <SelectContent>
                   {doctors.map((doctor) => (
                     <SelectItem key={doctor.id} value={doctor.id}>
-                      د. {doctor.profiles?.full_name} - {doctor.specialization}
+                      د. {doctor.full_name} - {doctor.specialization}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -483,11 +514,10 @@ const SmartSearch = () => {
                 <p className="text-sm text-destructive">{bookingForm.errors.doctor_id}</p>
               )}
             </div>
-            
             <TextInput
               label="تاريخ الموعد"
-              type="date"
               required
+              type="date"
               name="appointment_date"
               value={bookingForm.values.appointment_date}
               onChange={bookingForm.handleChange}
@@ -497,7 +527,6 @@ const SmartSearch = () => {
             <TextInput
               label="وقت الموعد"
               type="time"
-              required
               name="appointment_time"
               value={bookingForm.values.appointment_time}
               onChange={bookingForm.handleChange}
@@ -509,10 +538,11 @@ const SmartSearch = () => {
               value={bookingForm.values.notes}
               onChange={bookingForm.handleChange}
               onBlur={bookingForm.handleBlur}
+              placeholder="سبب الزيارة..."
             />
             <DialogFooter>
-              <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={bookingForm.isSubmitting}>
-                {bookingForm.isSubmitting ? "جاري الحجز..." : "حجز الموعد"}
+              <Button type="submit" variant="medical" disabled={bookingForm.isSubmitting}>
+                {bookingForm.isSubmitting ? "جاري الحجز..." : "تأكيد الحجز"}
               </Button>
             </DialogFooter>
           </form>

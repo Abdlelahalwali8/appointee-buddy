@@ -14,14 +14,11 @@ interface WaitingAppointment {
   id: string;
   appointment_time: string;
   notes?: string;
+  doctor_id: string;
+  doctor_name?: string;
   patients: {
     full_name: string;
     phone: string;
-  };
-  doctors: {
-    profiles: {
-      full_name: string;
-    };
   };
 }
 
@@ -32,26 +29,58 @@ const WaitingList = () => {
 
   const fetchWaitingAppointments = async () => {
     try {
-      const { data, error } = await supabase
+      // Fetch appointments with patients
+      const { data: appointmentsData, error: appointmentsError } = await supabase
         .from('appointments')
         .select(`
-          *,
+          id,
+          appointment_time,
+          notes,
+          doctor_id,
           patients (
             full_name,
             phone
-          ),
-          doctors (
-            profiles (
-              full_name
-            )
           )
         `)
         .eq('status', 'waiting')
         .eq('appointment_date', new Date().toISOString().split('T')[0])
         .order('appointment_time', { ascending: true });
 
-      if (error) throw error;
-      setWaitingAppointments(data || []);
+      if (appointmentsError) throw appointmentsError;
+
+      if (appointmentsData && appointmentsData.length > 0) {
+        // Get doctor names
+        const doctorIds = [...new Set(appointmentsData.map(a => a.doctor_id))];
+        const { data: doctorsData } = await supabase
+          .from('doctors')
+          .select('id, user_id')
+          .in('id', doctorIds);
+
+        if (doctorsData) {
+          const userIds = doctorsData.map(d => d.user_id);
+          const { data: profilesData } = await supabase
+            .from('profiles')
+            .select('user_id, full_name')
+            .in('user_id', userIds);
+
+          const doctorNameMap: Record<string, string> = {};
+          doctorsData.forEach(doctor => {
+            const profile = profilesData?.find(p => p.user_id === doctor.user_id);
+            doctorNameMap[doctor.id] = profile?.full_name || 'طبيب';
+          });
+
+          const enrichedAppointments = appointmentsData.map(appointment => ({
+            ...appointment,
+            doctor_name: doctorNameMap[appointment.doctor_id] || 'طبيب'
+          }));
+
+          setWaitingAppointments(enrichedAppointments);
+        } else {
+          setWaitingAppointments(appointmentsData.map(a => ({ ...a, doctor_name: 'طبيب' })));
+        }
+      } else {
+        setWaitingAppointments([]);
+      }
     } catch (error) {
       console.error('Error fetching waiting appointments:', error);
       toast({
@@ -90,7 +119,6 @@ const WaitingList = () => {
         description: `تم ${newStatus === 'completed' ? 'إكمال' : 'جدولة'} الموعد`,
       });
       
-      // Refresh the list after status update
       fetchWaitingAppointments();
     } catch (error) {
       console.error('Error updating appointment:', error);
@@ -217,23 +245,23 @@ const WaitingList = () => {
                     
                     <Avatar className="h-12 w-12">
                       <AvatarFallback className="bg-yellow-100 text-yellow-800 font-semibold">
-                        {appointment.patients.full_name.split(' ')[0][0]}
-                        {appointment.patients.full_name.split(' ')[1]?.[0] || ''}
+                        {appointment.patients?.full_name?.split(' ')[0]?.[0] || 'م'}
+                        {appointment.patients?.full_name?.split(' ')[1]?.[0] || ''}
                       </AvatarFallback>
                     </Avatar>
                     
                     <div>
                       <h4 className="font-semibold text-foreground mb-1">
-                        {appointment.patients.full_name}
+                        {appointment.patients?.full_name}
                       </h4>
                       <div className="flex items-center gap-4 text-sm text-muted-foreground">
                         <span className="flex items-center gap-1">
                           <User className="w-3 h-3" />
-                          د. {appointment.doctors.profiles.full_name}
+                          د. {appointment.doctor_name}
                         </span>
                         <span className="flex items-center gap-1">
                           <Phone className="w-3 h-3" />
-                          {appointment.patients.phone}
+                          {appointment.patients?.phone}
                         </span>
                         <span className="flex items-center gap-1">
                           <Clock className="w-3 h-3" />
@@ -296,7 +324,7 @@ const WaitingList = () => {
                   <div>
                     <p className="text-sm text-muted-foreground">المريض التالي</p>
                     <p className="text-lg font-semibold">
-                      {waitingAppointments[0]?.patients.full_name.split(' ')[0] || '-'}
+                      {waitingAppointments[0]?.patients?.full_name?.split(' ')[0] || '-'}
                     </p>
                   </div>
                 </div>

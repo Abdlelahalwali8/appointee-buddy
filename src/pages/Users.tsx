@@ -7,13 +7,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { UserCheck, Search, Plus, Mail, Phone, Shield, Edit, Trash2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 import { toast } from '@/hooks/use-toast';
 import { usePermissions } from '@/hooks/usePermissions';
 import Layout from '@/components/layout/Layout';
+import ConfirmDialog from '@/components/common/ConfirmDialog';
+
+type UserRole = 'admin' | 'doctor' | 'receptionist' | 'patient';
 
 interface UserProfile {
   id: string;
@@ -21,8 +23,7 @@ interface UserProfile {
   full_name: string;
   phone?: string;
   email?: string;
-  role: 'admin' | 'doctor' | 'receptionist' | 'patient';
-  is_active: boolean;
+  role?: UserRole;
   created_at: string;
 }
 
@@ -41,18 +42,34 @@ const Users = () => {
     password: '',
     fullName: '',
     phone: '',
-    role: 'patient' as UserProfile['role'],
+    role: 'patient' as UserRole,
   });
 
   const fetchUsers = async () => {
     try {
-      const { data, error } = await supabase
+      // Fetch profiles
+      const { data: profilesData, error: profilesError } = await supabase
         .from('profiles')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      setUsers(data || []);
+      if (profilesError) throw profilesError;
+
+      // Fetch user roles
+      const { data: rolesData } = await supabase
+        .from('user_roles')
+        .select('user_id, role');
+
+      // Combine data
+      const usersWithRoles = (profilesData || []).map(profile => {
+        const userRole = rolesData?.find(r => r.user_id === profile.user_id);
+        return {
+          ...profile,
+          role: userRole?.role as UserRole || 'patient'
+        };
+      });
+
+      setUsers(usersWithRoles);
     } catch (error) {
       console.error('Error fetching users:', error);
       toast({
@@ -97,26 +114,19 @@ const Users = () => {
       if (authError) throw authError;
 
       if (authData.user) {
-        // Update profile with role and phone
-        const { error: profileError } = await supabase
+        // Update profile with phone
+        await supabase
           .from('profiles')
-          .update({
-            role: newUserData.role,
-            phone: newUserData.phone,
-          })
+          .update({ phone: newUserData.phone })
           .eq('user_id', authData.user.id);
 
-        if (profileError) throw profileError;
-
         // Update user_roles
-        const { error: roleError } = await supabase
+        await supabase
           .from('user_roles')
           .upsert({
             user_id: authData.user.id,
             role: newUserData.role,
           });
-
-        if (roleError) throw roleError;
       }
 
       toast({
@@ -177,15 +187,15 @@ const Users = () => {
     }
   };
 
-  const handleDeleteUser = async (userId: string) => {
+  const handleDeleteUser = async () => {
+    if (!selectedUser) return;
     setIsSubmitting(true);
 
     try {
-      // Delete from profiles (this will cascade to user_roles)
       const { error } = await supabase
         .from('profiles')
         .delete()
-        .eq('user_id', userId);
+        .eq('user_id', selectedUser.user_id);
 
       if (error) throw error;
 
@@ -208,30 +218,23 @@ const Users = () => {
     }
   };
 
-  const updateUserRole = async (userId: string, newRole: UserProfile['role']) => {
+  const updateUserRole = async (userId: string, newRole: UserRole) => {
     try {
-      // Update profile
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({ role: newRole })
-        .eq('user_id', userId);
-
-      if (profileError) throw profileError;
-
-      // Update user_roles
-      const { error: roleError } = await supabase
+      const { error } = await supabase
         .from('user_roles')
         .upsert({
           user_id: userId,
           role: newRole,
         });
 
-      if (roleError) throw roleError;
+      if (error) throw error;
 
       toast({
         title: "تم التحديث",
         description: "تم تحديث دور المستخدم بنجاح",
       });
+
+      fetchUsers();
     } catch (error) {
       console.error('Error updating user role:', error);
       toast({
@@ -242,30 +245,7 @@ const Users = () => {
     }
   };
 
-  const toggleUserStatus = async (userId: string, currentStatus: boolean) => {
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ is_active: !currentStatus })
-        .eq('user_id', userId);
-
-      if (error) throw error;
-
-      toast({
-        title: "تم التحديث",
-        description: `تم ${!currentStatus ? 'تفعيل' : 'إلغاء تفعيل'} المستخدم`,
-      });
-    } catch (error) {
-      console.error('Error updating user status:', error);
-      toast({
-        title: "خطأ",
-        description: "فشل في تحديث حالة المستخدم",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const getRoleBadgeColor = (role: UserProfile['role']) => {
+  const getRoleBadgeColor = (role?: UserRole) => {
     switch (role) {
       case 'admin':
         return 'bg-red-100 text-red-800';
@@ -280,7 +260,7 @@ const Users = () => {
     }
   };
 
-  const getRoleLabel = (role: UserProfile['role']) => {
+  const getRoleLabel = (role?: UserRole) => {
     switch (role) {
       case 'admin':
         return 'مدير النظام';
@@ -291,7 +271,7 @@ const Users = () => {
       case 'patient':
         return 'مريض';
       default:
-        return role;
+        return 'مستخدم';
     }
   };
 
@@ -387,7 +367,7 @@ const Users = () => {
                     <Label htmlFor="new-role">الدور</Label>
                     <Select
                       value={newUserData.role}
-                      onValueChange={(value) => setNewUserData({ ...newUserData, role: value as UserProfile['role'] })}
+                      onValueChange={(value) => setNewUserData({ ...newUserData, role: value as UserRole })}
                     >
                       <SelectTrigger className="mt-1">
                         <SelectValue />
@@ -474,9 +454,6 @@ const Users = () => {
                         <Badge className={`text-xs ${getRoleBadgeColor(user.role)}`}>
                           {getRoleLabel(user.role)}
                         </Badge>
-                        <Badge variant={user.is_active ? "default" : "secondary"} className="text-xs">
-                          {user.is_active ? "نشط" : "غير نشط"}
-                        </Badge>
                       </div>
                       <div className="flex items-center gap-4 text-sm text-muted-foreground">
                         {user.email && (
@@ -492,182 +469,55 @@ const Users = () => {
                           </span>
                         )}
                         <span className="text-xs">
-                          انضم في {new Date(user.created_at).toLocaleDateString('ar-SA')}
+                          منذ {new Date(user.created_at).toLocaleDateString('ar-SA')}
                         </span>
                       </div>
                     </div>
                   </div>
                   
-                  <div className="flex items-center gap-2">
-                    {permissions.canManageUsers && (
-                      <>
-                        <select
-                          value={user.role}
-                          onChange={(e) => updateUserRole(user.user_id, e.target.value as UserProfile['role'])}
-                          className="px-2 py-1 text-sm border rounded bg-background"
-                        >
-                          <option value="admin">مدير النظام</option>
-                          <option value="doctor">طبيب</option>
-                          <option value="receptionist">موظف استقبال</option>
-                          <option value="patient">مريض</option>
-                        </select>
-                        
-                        <Button
-                          size="sm"
-                          variant={user.is_active ? "outline" : "medical"}
-                          onClick={() => toggleUserStatus(user.user_id, user.is_active)}
-                        >
-                          {user.is_active ? "إلغاء التفعيل" : "تفعيل"}
-                        </Button>
-
-                        <Dialog>
-                          <DialogTrigger asChild>
-                            <Button size="sm" variant="outline" onClick={() => setSelectedUser(user)}>
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent dir="rtl">
-                            <DialogHeader>
-                              <DialogTitle>تعديل بيانات المستخدم</DialogTitle>
-                            </DialogHeader>
-                            <div className="space-y-4 mt-4">
-                              <div>
-                                <Label>الاسم الكامل</Label>
-                                <Input
-                                  value={selectedUser?.full_name || ''}
-                                  onChange={(e) => setSelectedUser(selectedUser ? { ...selectedUser, full_name: e.target.value } : null)}
-                                  className="mt-1"
-                                />
-                              </div>
-                              <div>
-                                <Label>البريد الإلكتروني</Label>
-                                <Input
-                                  value={selectedUser?.email || ''}
-                                  onChange={(e) => setSelectedUser(selectedUser ? { ...selectedUser, email: e.target.value } : null)}
-                                  className="mt-1"
-                                />
-                              </div>
-                              <div>
-                                <Label>رقم الهاتف</Label>
-                                <Input
-                                  value={selectedUser?.phone || ''}
-                                  onChange={(e) => setSelectedUser(selectedUser ? { ...selectedUser, phone: e.target.value } : null)}
-                                  className="mt-1"
-                                />
-                              </div>
-                            </div>
-                            <DialogFooter>
-                              <Button
-                                variant="medical"
-                                onClick={() => selectedUser && handleEditUser(selectedUser)}
-                                disabled={isSubmitting}
-                              >
-                                {isSubmitting ? "جاري الحفظ..." : "حفظ التغييرات"}
-                              </Button>
-                            </DialogFooter>
-                          </DialogContent>
-                        </Dialog>
-
-                        <AlertDialog open={isDeleteDialogOpen && selectedUser?.id === user.id} onOpenChange={setIsDeleteDialogOpen}>
-                          <AlertDialogTrigger asChild>
-                            <Button size="sm" variant="destructive" onClick={() => setSelectedUser(user)}>
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent dir="rtl">
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>تأكيد الحذف</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                هل أنت متأكد من حذف المستخدم "{user.full_name}"؟ لا يمكن التراجع عن هذا الإجراء.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>إلغاء</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => handleDeleteUser(user.user_id)}
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                disabled={isSubmitting}
-                              >
-                                {isSubmitting ? "جاري الحذف..." : "حذف"}
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </>
-                    )}
-                  </div>
+                  {permissions.canManageUsers && (
+                    <div className="flex items-center gap-2">
+                      <Select
+                        value={user.role}
+                        onValueChange={(value) => updateUserRole(user.user_id, value as UserRole)}
+                      >
+                        <SelectTrigger className="w-[140px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="patient">مريض</SelectItem>
+                          <SelectItem value="receptionist">موظف استقبال</SelectItem>
+                          <SelectItem value="doctor">طبيب</SelectItem>
+                          <SelectItem value="admin">مدير النظام</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => {
+                          setSelectedUser(user);
+                          setIsDeleteDialogOpen(true);
+                        }}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  )}
                 </div>
               ))
             )}
           </CardContent>
         </Card>
 
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card className="card-gradient border-0 medical-shadow">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-                  <Shield className="w-5 h-5 text-red-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">مديرو النظام</p>
-                  <p className="text-lg font-semibold">
-                    {users.filter(u => u.role === 'admin').length}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card className="card-gradient border-0 medical-shadow">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                  <UserCheck className="w-5 h-5 text-blue-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">الأطباء</p>
-                  <p className="text-lg font-semibold">
-                    {users.filter(u => u.role === 'doctor').length}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card className="card-gradient border-0 medical-shadow">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-                  <UserCheck className="w-5 h-5 text-green-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">موظفو الاستقبال</p>
-                  <p className="text-lg font-semibold">
-                    {users.filter(u => u.role === 'receptionist').length}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card className="card-gradient border-0 medical-shadow">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
-                  <UserCheck className="w-5 h-5 text-gray-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">المرضى</p>
-                  <p className="text-lg font-semibold">
-                    {users.filter(u => u.role === 'patient').length}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+        {/* Delete Confirmation */}
+        <ConfirmDialog
+          open={isDeleteDialogOpen}
+          onOpenChange={setIsDeleteDialogOpen}
+          onConfirm={handleDeleteUser}
+          title="حذف المستخدم"
+          description={`هل أنت متأكد من حذف المستخدم "${selectedUser?.full_name}"؟ لا يمكن التراجع عن هذا الإجراء.`}
+          isDangerous
+        />
       </div>
     </Layout>
   );

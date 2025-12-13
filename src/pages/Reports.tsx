@@ -8,7 +8,7 @@ import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer, AreaChart, Area
 } from 'recharts';
-import { BarChart3, TrendingUp, Calendar, DollarSign, Users, Stethoscope, FileText, Download, Filter } from 'lucide-react';
+import { BarChart3, TrendingUp, Calendar, DollarSign, Users, FileText, Download } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import { usePermissions } from '@/hooks/usePermissions';
@@ -115,6 +115,7 @@ const Reports = () => {
 
   const exportReport = async () => {
     try {
+      // Fetch appointments
       let query = supabase
         .from('appointments')
         .select(`
@@ -122,14 +123,10 @@ const Reports = () => {
           appointment_time,
           status,
           cost,
+          doctor_id,
           patients (
             full_name,
             phone
-          ),
-          doctors (
-            profiles (
-              full_name
-            )
           )
         `);
 
@@ -140,37 +137,60 @@ const Reports = () => {
         query = query.lte('appointment_date', dateTo);
       }
 
-      const { data, error } = await query.order('appointment_date', { ascending: false });
+      const { data: appointmentsData, error: appointmentsError } = await query.order('appointment_date', { ascending: false });
 
-      if (error) throw error;
+      if (appointmentsError) throw appointmentsError;
 
-      // Convert to CSV
-      const csvContent = [
-        'التاريخ,الوقت,المريض,الطبيب,الحالة,التكلفة',
-        ...(data || []).map(appointment => [
-          appointment.appointment_date,
-          appointment.appointment_time,
-          appointment.patients.full_name,
-          appointment.doctors.profiles.full_name,
-          appointment.status,
-          appointment.cost || 0
-        ].join(','))
-      ].join('\n');
+      // Get doctor names
+      if (appointmentsData && appointmentsData.length > 0) {
+        const doctorIds = [...new Set(appointmentsData.map(a => a.doctor_id))];
+        const { data: doctorsData } = await supabase
+          .from('doctors')
+          .select('id, user_id')
+          .in('id', doctorIds);
 
-      // Download CSV
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
-      const url = URL.createObjectURL(blob);
-      link.setAttribute('href', url);
-      link.setAttribute('download', `report_${new Date().toISOString().split('T')[0]}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+        let doctorNameMap: Record<string, string> = {};
+        if (doctorsData) {
+          const userIds = doctorsData.map(d => d.user_id);
+          const { data: profilesData } = await supabase
+            .from('profiles')
+            .select('user_id, full_name')
+            .in('user_id', userIds);
 
-      toast({
-        title: "تم التصدير",
-        description: "تم تصدير التقرير بنجاح",
-      });
+          doctorsData.forEach(doctor => {
+            const profile = profilesData?.find(p => p.user_id === doctor.user_id);
+            doctorNameMap[doctor.id] = profile?.full_name || 'طبيب';
+          });
+        }
+
+        // Convert to CSV
+        const csvContent = [
+          'التاريخ,الوقت,المريض,الطبيب,الحالة,التكلفة',
+          ...appointmentsData.map(appointment => [
+            appointment.appointment_date,
+            appointment.appointment_time,
+            appointment.patients?.full_name || '',
+            doctorNameMap[appointment.doctor_id] || 'طبيب',
+            appointment.status,
+            appointment.cost || 0
+          ].join(','))
+        ].join('\n');
+
+        // Download CSV
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `report_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        toast({
+          title: "تم التصدير",
+          description: "تم تصدير التقرير بنجاح",
+        });
+      }
     } catch (error) {
       console.error('Error exporting report:', error);
       toast({

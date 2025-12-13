@@ -2,27 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import { FileText, Calendar, User, Activity, Pill, FlaskConical } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 
 interface MedicalRecord {
   id: string;
-  visit_date: string;
-  chief_complaint?: string;
-  diagnosis?: string;
-  treatment_plan?: string;
-  prescribed_medications?: string;
-  lab_results?: string;
-  vital_signs?: any;
-  follow_up_instructions?: string;
-  doctor: {
-    profiles: {
-      full_name: string;
-    };
-    specialization: string;
-  };
+  record_date: string;
+  diagnosis: string;
+  treatment?: string;
+  prescription?: string;
+  notes?: string;
+  doctor_name?: string;
 }
 
 interface MedicalRecordDialogProps {
@@ -50,22 +41,49 @@ const MedicalRecordDialog: React.FC<MedicalRecordDialogProps> = ({
   const fetchMedicalRecords = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
+      
+      // Fetch medical records
+      const { data: recordsData, error: recordsError } = await supabase
         .from('medical_records')
-        .select(`
-          *,
-          doctor:doctor_id (
-            specialization,
-            profiles:user_id (
-              full_name
-            )
-          )
-        `)
+        .select('*')
         .eq('patient_id', patientId)
-        .order('visit_date', { ascending: false });
+        .order('record_date', { ascending: false });
 
-      if (error) throw error;
-      setRecords(data || []);
+      if (recordsError) throw recordsError;
+
+      if (recordsData && recordsData.length > 0) {
+        // Get doctor names
+        const doctorIds = [...new Set(recordsData.map(r => r.doctor_id))];
+        const { data: doctorsData } = await supabase
+          .from('doctors')
+          .select('id, user_id')
+          .in('id', doctorIds);
+
+        if (doctorsData) {
+          const userIds = doctorsData.map(d => d.user_id);
+          const { data: profilesData } = await supabase
+            .from('profiles')
+            .select('user_id, full_name')
+            .in('user_id', userIds);
+
+          const doctorNameMap: Record<string, string> = {};
+          doctorsData.forEach(doctor => {
+            const profile = profilesData?.find(p => p.user_id === doctor.user_id);
+            doctorNameMap[doctor.id] = profile?.full_name || 'طبيب';
+          });
+
+          const enrichedRecords = recordsData.map(record => ({
+            ...record,
+            doctor_name: doctorNameMap[record.doctor_id] || 'طبيب'
+          }));
+
+          setRecords(enrichedRecords);
+        } else {
+          setRecords(recordsData.map(r => ({ ...r, doctor_name: 'طبيب' })));
+        }
+      } else {
+        setRecords([]);
+      }
     } catch (error) {
       console.error('Error fetching medical records:', error);
       toast({
@@ -112,7 +130,7 @@ const MedicalRecordDialog: React.FC<MedicalRecordDialogProps> = ({
                     <div>
                       <CardTitle className="text-lg flex items-center gap-2">
                         <Calendar className="w-4 h-4" />
-                        {new Date(record.visit_date).toLocaleDateString('ar-SA', {
+                        {new Date(record.record_date).toLocaleDateString('ar-SA', {
                           year: 'numeric',
                           month: 'long',
                           day: 'numeric',
@@ -120,59 +138,12 @@ const MedicalRecordDialog: React.FC<MedicalRecordDialogProps> = ({
                       </CardTitle>
                       <div className="flex items-center gap-2 mt-2 text-sm text-muted-foreground">
                         <User className="w-4 h-4" />
-                        <span>د. {record.doctor?.profiles?.full_name}</span>
-                        <Badge variant="outline" className="mr-2">
-                          {record.doctor?.specialization}
-                        </Badge>
+                        <span>د. {record.doctor_name}</span>
                       </div>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {record.chief_complaint && (
-                    <div>
-                      <h4 className="font-semibold text-sm text-muted-foreground mb-1">
-                        الشكوى الرئيسية
-                      </h4>
-                      <p className="text-foreground">{record.chief_complaint}</p>
-                    </div>
-                  )}
-
-                  {record.vital_signs && (
-                    <div>
-                      <h4 className="font-semibold text-sm text-muted-foreground mb-2 flex items-center gap-1">
-                        <Activity className="w-4 h-4" />
-                        العلامات الحيوية
-                      </h4>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        {record.vital_signs.blood_pressure && (
-                          <div className="bg-accent/30 p-2 rounded-lg">
-                            <p className="text-xs text-muted-foreground">ضغط الدم</p>
-                            <p className="font-semibold">{record.vital_signs.blood_pressure}</p>
-                          </div>
-                        )}
-                        {record.vital_signs.temperature && (
-                          <div className="bg-accent/30 p-2 rounded-lg">
-                            <p className="text-xs text-muted-foreground">الحرارة</p>
-                            <p className="font-semibold">{record.vital_signs.temperature}°C</p>
-                          </div>
-                        )}
-                        {record.vital_signs.pulse && (
-                          <div className="bg-accent/30 p-2 rounded-lg">
-                            <p className="text-xs text-muted-foreground">النبض</p>
-                            <p className="font-semibold">{record.vital_signs.pulse} نبضة/دقيقة</p>
-                          </div>
-                        )}
-                        {record.vital_signs.weight && (
-                          <div className="bg-accent/30 p-2 rounded-lg">
-                            <p className="text-xs text-muted-foreground">الوزن</p>
-                            <p className="font-semibold">{record.vital_signs.weight} كجم</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
                   {record.diagnosis && (
                     <div>
                       <h4 className="font-semibold text-sm text-muted-foreground mb-1">
@@ -182,41 +153,31 @@ const MedicalRecordDialog: React.FC<MedicalRecordDialogProps> = ({
                     </div>
                   )}
 
-                  {record.treatment_plan && (
+                  {record.treatment && (
                     <div>
                       <h4 className="font-semibold text-sm text-muted-foreground mb-1">
-                        خطة العلاج
+                        العلاج
                       </h4>
-                      <p className="text-foreground">{record.treatment_plan}</p>
+                      <p className="text-foreground">{record.treatment}</p>
                     </div>
                   )}
 
-                  {record.prescribed_medications && (
+                  {record.prescription && (
                     <div>
                       <h4 className="font-semibold text-sm text-muted-foreground mb-1 flex items-center gap-1">
                         <Pill className="w-4 h-4" />
-                        الأدوية الموصوفة
+                        الوصفة الطبية
                       </h4>
-                      <p className="text-foreground whitespace-pre-wrap">{record.prescribed_medications}</p>
+                      <p className="text-foreground whitespace-pre-wrap">{record.prescription}</p>
                     </div>
                   )}
 
-                  {record.lab_results && (
-                    <div>
-                      <h4 className="font-semibold text-sm text-muted-foreground mb-1 flex items-center gap-1">
-                        <FlaskConical className="w-4 h-4" />
-                        نتائج المختبر
-                      </h4>
-                      <p className="text-foreground whitespace-pre-wrap">{record.lab_results}</p>
-                    </div>
-                  )}
-
-                  {record.follow_up_instructions && (
+                  {record.notes && (
                     <div className="bg-primary/5 p-3 rounded-lg">
                       <h4 className="font-semibold text-sm text-primary mb-1">
-                        تعليمات المتابعة
+                        ملاحظات
                       </h4>
-                      <p className="text-foreground">{record.follow_up_instructions}</p>
+                      <p className="text-foreground">{record.notes}</p>
                     </div>
                   )}
                 </CardContent>

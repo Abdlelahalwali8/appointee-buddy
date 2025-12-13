@@ -18,11 +18,7 @@ import Reports from "./pages/Reports";
 import Notifications from "./pages/Notifications";
 import Users from "./pages/Users";
 import Settings from "./pages/Settings";
-import Permissions from "./pages/Permissions";
 import QuickBooking from "./pages/QuickBooking";
-import SystemManagement from "./pages/SystemManagement";
-import PermissionsAdvanced from "./pages/PermissionsAdvanced";
-import AppointmentsAdvanced from "./pages/AppointmentsAdvanced";
 import NotFound from "./pages/NotFound";
 import Help from "./pages/Help";
 
@@ -55,11 +51,6 @@ const App = () => {
               <Route path="/appointments" element={
                 <ProtectedRoute>
                   <Appointments />
-                </ProtectedRoute>
-              } />
-              <Route path="/appointments-advanced" element={
-                <ProtectedRoute allowedRoles={['admin', 'doctor', 'receptionist']}>
-                  <AppointmentsAdvanced />
                 </ProtectedRoute>
               } />
               <Route path="/patients" element={
@@ -97,16 +88,6 @@ const App = () => {
                   <Users />
                 </ProtectedRoute>
               } />
-              <Route path="/permissions" element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <Permissions />
-                </ProtectedRoute>
-              } />
-              <Route path="/permissions-advanced" element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <PermissionsAdvanced />
-                </ProtectedRoute>
-              } />
               <Route path="/settings" element={
                 <ProtectedRoute allowedRoles={['admin']}>
                   <Settings />
@@ -117,17 +98,11 @@ const App = () => {
                   <QuickBooking />
                 </ProtectedRoute>
               } />
-              <Route path="/system-management" element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <SystemManagement />
-                </ProtectedRoute>
-              } />
               <Route path="/help" element={
                 <ProtectedRoute>
                   <Help />
                 </ProtectedRoute>
               } />
-              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>

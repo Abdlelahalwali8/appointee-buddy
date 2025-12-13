@@ -14,9 +14,7 @@ interface Doctor {
   id: string;
   specialization: string;
   consultation_fee: number;
-  profiles: {
-    full_name: string;
-  };
+  full_name: string;
 }
 
 interface Patient {
@@ -50,18 +48,31 @@ const QuickBooking = () => {
       // Fetch doctors
       const { data: doctorsData, error: doctorsError } = await supabase
         .from('doctors')
-        .select(`
-          id,
-          specialization,
-          consultation_fee,
-          profiles (
-            full_name
-          )
-        `)
+        .select('id, user_id, specialization, consultation_fee')
         .eq('is_available', true);
 
       if (doctorsError) throw doctorsError;
-      setDoctors(doctorsData || []);
+
+      // Get profiles for doctors
+      if (doctorsData && doctorsData.length > 0) {
+        const userIds = doctorsData.map(d => d.user_id);
+        const { data: profilesData } = await supabase
+          .from('profiles')
+          .select('user_id, full_name')
+          .in('user_id', userIds);
+
+        const enrichedDoctors = doctorsData.map(doctor => {
+          const profile = profilesData?.find(p => p.user_id === doctor.user_id);
+          return {
+            id: doctor.id,
+            specialization: doctor.specialization,
+            consultation_fee: doctor.consultation_fee || 0,
+            full_name: profile?.full_name || 'طبيب'
+          };
+        });
+
+        setDoctors(enrichedDoctors);
+      }
 
       // Fetch patients
       const { data: patientsData, error: patientsError } = await supabase
@@ -231,7 +242,7 @@ const QuickBooking = () => {
                       <Stethoscope className="w-8 h-8 text-primary" />
                     </div>
                     <h3 className="font-semibold text-foreground">
-                      د. {doctor.profiles.full_name}
+                      د. {doctor.full_name}
                     </h3>
                     <p className="text-sm text-primary">{doctor.specialization}</p>
                     <p className="text-sm text-muted-foreground">
@@ -252,7 +263,7 @@ const QuickBooking = () => {
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
-                حجز موعد مع د. {selectedDoctor?.profiles.full_name}
+                حجز موعد مع د. {selectedDoctor?.full_name}
               </DialogTitle>
             </DialogHeader>
             <div className="space-y-6">

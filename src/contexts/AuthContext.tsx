@@ -121,21 +121,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const signIn = async (identifier: string, password: string) => {
-    let email = identifier;
+    // Sanitize input - remove any SQL injection attempts
+    const sanitizedIdentifier = identifier.trim().slice(0, 255);
+    let email = sanitizedIdentifier;
     
-    if (!identifier.includes('@')) {
+    // Only look up by phone/name if identifier is not an email
+    if (!sanitizedIdentifier.includes('@')) {
       try {
-        const { data: profiles } = await supabase
+        // Use separate queries to prevent SQL injection
+        // First try to find by phone
+        const { data: byPhone } = await supabase
           .from('profiles')
           .select('email')
-          .or(`phone.eq.${identifier},full_name.eq.${identifier}`)
+          .eq('phone', sanitizedIdentifier)
           .maybeSingle();
         
-        if (profiles?.email) {
-          email = profiles.email;
+        if (byPhone?.email) {
+          email = byPhone.email;
+        } else {
+          // Then try by full name
+          const { data: byName } = await supabase
+            .from('profiles')
+            .select('email')
+            .eq('full_name', sanitizedIdentifier)
+            .maybeSingle();
+          
+          if (byName?.email) {
+            email = byName.email;
+          }
         }
       } catch (error) {
-        // Continue with original identifier
+        // Continue with original identifier - do not log sensitive data
       }
     }
 
@@ -147,7 +163,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (error) {
       toast({
         title: "خطأ في تسجيل الدخول",
-        description: error.message,
+        description: "بيانات الدخول غير صحيحة",
         variant: "destructive",
       });
     }

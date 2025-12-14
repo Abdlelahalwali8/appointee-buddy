@@ -6,6 +6,21 @@ interface SearchOptions {
   minChars?: number;
 }
 
+// Helper function to get nested field value
+const getNestedValue = (obj: Record<string, any>, path: string): any => {
+  const keys = path.split('.');
+  let value: any = obj;
+  
+  for (const key of keys) {
+    if (value === null || value === undefined) {
+      return '';
+    }
+    value = value[key];
+  }
+  
+  return value ?? '';
+};
+
 export function useSearch<T extends Record<string, any>>(
   data: T[],
   options: SearchOptions
@@ -21,7 +36,7 @@ export function useSearch<T extends Record<string, any>>(
 
     return data.filter(item =>
       options.fields.some(field => {
-        const value = String(item[field] || '');
+        const value = String(getNestedValue(item, field) || '');
         const fieldValue = options.caseSensitive ? value : value.toLowerCase();
         return fieldValue.includes(term);
       })

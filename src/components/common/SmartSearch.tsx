@@ -83,13 +83,17 @@ const SmartSearch = () => {
     }
 
     try {
+      // Sanitize search term to prevent SQL injection
+      const { sanitizeSearchInput } = await import('@/utils/sanitizeSearch');
+      const sanitizedQuery = sanitizeSearchInput(query.trim());
+      
       const searchResults: SearchResult[] = [];
 
       // Search patients
       const { data: patients } = await supabase
         .from('patients')
         .select('*')
-        .or(`full_name.ilike.%${query}%,phone.ilike.%${query}%`);
+        .or(`full_name.ilike.%${sanitizedQuery}%,phone.ilike.%${sanitizedQuery}%`);
 
       patients?.forEach(patient => {
         searchResults.push({
@@ -113,7 +117,7 @@ const SmartSearch = () => {
           .from('profiles')
           .select('user_id, full_name, email')
           .in('user_id', userIds)
-          .ilike('full_name', `%${query}%`);
+          .ilike('full_name', `%${sanitizedQuery}%`);
 
         profilesData?.forEach(profile => {
           const doctor = doctorsData.find(d => d.user_id === profile.user_id);

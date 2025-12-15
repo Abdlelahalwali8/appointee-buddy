@@ -166,10 +166,14 @@ const Auth = () => {
 
     setIsSearching(true);
     try {
+      // Sanitize search term to prevent SQL injection
+      const { sanitizeSearchInput } = await import('@/utils/sanitizeSearch');
+      const sanitizedTerm = sanitizeSearchInput(searchTerm.trim());
+      
       const { data, error } = await supabase
         .from('patients')
         .select('*')
-        .or(`full_name.ilike.%${searchTerm}%,phone.ilike.%${searchTerm}%`)
+        .or(`full_name.ilike.%${sanitizedTerm}%,phone.ilike.%${sanitizedTerm}%`)
         .limit(5);
 
       if (error) throw error;

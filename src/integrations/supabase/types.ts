@@ -145,7 +145,9 @@ export type Database = {
           bio: string | null
           consultation_fee: number | null
           created_at: string
+          doctor_name: string | null
           experience_years: number | null
+          free_return_days: number | null
           id: string
           is_available: boolean | null
           license_number: string | null
@@ -161,7 +163,9 @@ export type Database = {
           bio?: string | null
           consultation_fee?: number | null
           created_at?: string
+          doctor_name?: string | null
           experience_years?: number | null
+          free_return_days?: number | null
           id?: string
           is_available?: boolean | null
           license_number?: string | null
@@ -177,7 +181,9 @@ export type Database = {
           bio?: string | null
           consultation_fee?: number | null
           created_at?: string
+          doctor_name?: string | null
           experience_years?: number | null
+          free_return_days?: number | null
           id?: string
           is_available?: boolean | null
           license_number?: string | null

@@ -2,8 +2,8 @@
   "version": 2,
   "build": {
     "env": {
-      "VITE_SUPABASE_URL": "@https://ezvrvqplhzxrhlyohlzn.supabase.co",
-      "VITE_SUPABASE_ANON_KEY": "@eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV6dnJ2cXBsaHp4cmhseW9obHpuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk4Njg1MzIsImV4cCI6MjA3NTQ0NDUzMn0.5DJi9hIj4VXoSxmo4d05St3OEFtxa-8KyYa0Te4NJWo"
+      "VITE_SUPABASE_URL": "@VITE_SUPABASE_URL",
+      "VITE_SUPABASE_ANON_KEY": "@VITE_SUPABASE_ANON_KEY"
     }
   },
   "routes": [
